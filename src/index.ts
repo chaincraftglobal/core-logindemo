@@ -1,18 +1,18 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import validateRouter from "./routes/validate";
+import validateRoute from "./routes/validate";
 
 dotenv.config();
+
 const app = express();
-app.use(cors());
 app.use(express.json());
+app.use(cors());
 
-app.get("/", (_req, res) => {
-  res.json({ ok: true, service: "core-logindemo" });
-});
+app.get("/", (_req, res) => res.json({ ok: true, service: "core-logindemo" }));
 
-app.use("/validate", validateRouter);
+// Add login-check endpoint
+app.use("/validate", validateRoute);
 
-const port = process.env.PORT || 8082;
-app.listen(port, () => console.log(`[core-logindemo] running on port ${port}`));
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => console.log(`[core-logindemo] running on ${PORT}`));
