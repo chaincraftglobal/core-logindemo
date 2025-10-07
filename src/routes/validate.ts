@@ -1,6 +1,6 @@
 import { Router } from "express";
-import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
 
 const router = Router();
 
@@ -12,20 +12,30 @@ router.post("/", async (req, res) => {
     }
 
     try {
-        // ✅ Get Chrome executable path from Sparticuz Chromium
-        const executablePath = await chromium.executablePath();
+        // ✅ Detect environment (Render or local)
+        const isRender = process.env.RENDER === "true" || !!process.env.RENDER_EXTERNAL_URL;
 
-        if (!executablePath) {
-            throw new Error("No Chromium executable found for Render environment");
+        let executablePath: string | null;
+
+        if (isRender) {
+            // 🧠 On Render — use Sparticuz Chromium
+            executablePath = await chromium.executablePath();
+            if (!executablePath) throw new Error("Chromium executable not found for Render.");
+        } else {
+            // 🧩 Local — use system Chrome (Mac/Linux)
+            executablePath =
+                process.env.PUPPETEER_EXECUTABLE_PATH ||
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
         }
+
+        console.log(`[LoginDemo] Launching Chrome from: ${executablePath}`);
 
         const browser = await puppeteer.launch({
             args: chromium.args,
             executablePath,
             headless: true,
             defaultViewport: { width: 1280, height: 800 },
-            ignoreHTTPSErrors: true, // still use it — we’ll cast this whole object
-        } as any); // ✅ bypass TS complaining about that optional field
+        } as any);
 
         const page = await browser.newPage();
         await page.goto(loginUrl, { waitUntil: "networkidle2", timeout: 60000 });
