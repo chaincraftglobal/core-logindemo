@@ -1,5 +1,6 @@
 import { Router } from "express";
-import puppeteer from "puppeteer";
+import chromium from "@sparticuz/chromium";
+import puppeteer from "puppeteer-core";
 
 const router = Router();
 
@@ -11,9 +12,13 @@ router.post("/", async (req, res) => {
   }
 
   try {
+    const executablePath = await chromium.executablePath();
+
     const browser = await puppeteer.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: chromium.args,
+      defaultViewport: { width: 1280, height: 800 }, // ✅ manually define viewport
+      executablePath,
+      headless: true, // ✅ safe default for Render
     });
     const page = await browser.newPage();
 
@@ -30,11 +35,11 @@ router.post("/", async (req, res) => {
       page.click("button[type='submit'], #loginBtn"),
     ]);
 
-    const pageTitle = await page.title();
+    const title = await page.title();
     await browser.close();
 
     // Simple check — if redirected or title changed, consider login successful
-    if (!pageTitle.toLowerCase().includes("login")) {
+    if (!title.toLowerCase().includes("login")) {
       return res.json({ ok: true, message: "Authenticated" });
     } else {
       return res.status(401).json({ ok: false, message: "Invalid credentials" });
