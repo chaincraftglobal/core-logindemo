@@ -1,19 +1,21 @@
 {
   "name": "core-logindemo",
   "version": "1.0.0",
+  "description": "Login validation demo (Render + Puppeteer + Chromium)",
   "main": "dist/index.js",
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
+    "dev": "ts-node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts"
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "@sparticuz/chromium": "^141.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "puppeteer-core": "^24.23.0"
+    "puppeteer-core": "^24.3.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -21,5 +23,17 @@
     "@types/node": "^20.11.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.0"
-  }
+  },
+  "engines": {
+    "node": ">=20.x"
+  },
+  "keywords": [
+    "puppeteer",
+    "chromium",
+    "express",
+    "render",
+    "typescript"
+  ],
+  "author": "Dipak Bhosale",
+  "license": "MIT"
 }
