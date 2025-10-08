@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Login validation demo (Render + Puppeteer + Chromium)",
   "main": "dist/index.js",
-  "type": "module",
   "scripts": {
     "dev": "ts-node src/index.ts",
     "build": "tsc",
