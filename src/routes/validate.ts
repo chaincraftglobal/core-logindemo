@@ -4,28 +4,37 @@ import chromium from "@sparticuz/chromium";
 
 const router = Router();
 
+// Detect if running on Render (production)
 const isRender = () =>
     !!process.env.RENDER ||
     !!process.env.RENDER_EXTERNAL_URL ||
     process.env.NODE_ENV === "production";
 
+// Launch options for Puppeteer
 async function getLaunchOptions(): Promise<LaunchOptions> {
-    if (isRender()) {
-        // 🟢 Render server: use @sparticuz/chromium (bundled headless Chrome)
+    const isProd = isRender();
+
+    if (isProd) {
+        // ✅ On Render: use Sparticuz Chromium
+        const execPath = await chromium.executablePath();
+        console.log("🧭 Using Chromium from:", execPath);
+
         return {
             args: chromium.args,
-            executablePath: await chromium.executablePath(),
-            headless: true, // must be boolean, not chromium.headless
+            executablePath: execPath,
+            headless: true,
+            ignoreDefaultArgs: ["--disable-extensions"],
         };
     }
 
-    // 🟡 Local development: use system Chrome
+    // ✅ Local development on Mac/Windows
     return {
         channel: "chrome",
         headless: false,
     };
 }
 
+// Main /validate route
 router.post(
     "/validate",
     async (req: Request, res: Response): Promise<Response> => {
@@ -44,35 +53,39 @@ router.post(
             browser = await puppeteer.launch(launchOptions);
             const page = await browser.newPage();
 
-            // Explicit viewport (since chromium.defaultViewport removed)
+            // Set viewport explicitly (no defaultViewport from chromium)
             await page.setViewport({ width: 1280, height: 800 });
 
+            // Timeouts
             page.setDefaultNavigationTimeout(90_000);
             page.setDefaultTimeout(60_000);
 
-            // Go to login page
+            // Visit login page
             await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
 
-            // Input email
+            // Fill email
             await page.waitForSelector('input[name="email"], #email', { visible: true });
-            await page.type('input[name="email"], #email', username, { delay: 20 });
+            await page.type('input[name="email"], #email', username, { delay: 25 });
 
-            // Input password
+            // Fill password
             await page.waitForSelector('input[name="password"], #password', { visible: true });
-            await page.type('input[name="password"], #password', password, { delay: 20 });
+            await page.type('input[name="password"], #password', password, { delay: 25 });
 
-            // Click login button
+            // Click Login button
             const submitSel =
                 'button[type="submit"], .btn.btn-primary[type="submit"], .btn.btn-primary';
             await page.click(submitSel);
 
-            // Wait for redirect after login
+            // Wait for navigation
             await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 90_000 });
 
+            // Evaluate result
             const currentUrl = page.url();
             const ok =
-                currentUrl.includes("/home") || !currentUrl.includes("/login");
+                currentUrl.includes("/home") ||
+                (!currentUrl.includes("/login") && !currentUrl.includes("error"));
 
+            // Take screenshot
             const png = await page.screenshot({ type: "png" });
             const screenshot = `data:image/png;base64,${Buffer.from(png).toString("base64")}`;
 
@@ -95,7 +108,7 @@ router.post(
                 try {
                     await browser.close();
                 } catch {
-                    // ignore
+                    // ignore silently
                 }
             }
         }
