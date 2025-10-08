@@ -1,109 +1,105 @@
-import { Router } from "express";
-import puppeteer, { Browser, Page, LaunchOptions } from "puppeteer";
-
-type ReqBody = {
-    loginUrl: string;
-    username: string;
-    password: string;
-};
+import { Router, Request, Response } from "express";
+import puppeteer, { type Browser, type LaunchOptions } from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
 
 const router = Router();
 
-router.post("/", async (req, res) => {
-    const { loginUrl, username, password } = (req.body || {}) as ReqBody;
+const isRender = () =>
+    !!process.env.RENDER ||
+    !!process.env.RENDER_EXTERNAL_URL ||
+    process.env.NODE_ENV === "production";
 
-    if (!loginUrl || !username || !password) {
-        return res.status(400).json({
-            ok: false,
-            message: "Missing loginUrl, username, or password"
-        });
+async function getLaunchOptions(): Promise<LaunchOptions> {
+    if (isRender()) {
+        // 🟢 Render server: use @sparticuz/chromium (bundled headless Chrome)
+        return {
+            args: chromium.args,
+            executablePath: await chromium.executablePath(),
+            headless: true, // must be boolean, not chromium.headless
+        };
     }
 
-    let browser: Browser | null = null;
+    // 🟡 Local development: use system Chrome
+    return {
+        channel: "chrome",
+        headless: false,
+    };
+}
 
-    try {
-        // Launch with Chrome channel; works locally and on Render (postinstall installs Chrome).
-        browser = await puppeteer.launch({
-            channel: "chrome",
-            headless: true,
-            args: [
-                "--no-sandbox",
-                "--disable-setuid-sandbox"
-            ]
-        });
+router.post(
+    "/validate",
+    async (req: Request, res: Response): Promise<Response> => {
+        const { loginUrl, username, password } = req.body ?? {};
 
-        const page = await browser.newPage();
-
-        // Speed/reliability tweaks
-        page.setDefaultNavigationTimeout(90_000);
-        page.setDefaultTimeout(60_000);
-
-        await page.goto(loginUrl, { waitUntil: "networkidle2" });
-
-        // The site uses name="email" and name="password"
-        await page.waitForSelector('input[name="email"]', { visible: true });
-        await page.type('input[name="email"]', username, { delay: 15 });
-
-        await page.waitForSelector('input[name="password"]', { visible: true });
-        await page.type('input[name="password"]', password, { delay: 18 });
-
-        // Try clicking the visible submit button inside the same form
-        // If the site changes, you can also submit via form submit() as fallback.
-        const submitBtn = await page.$('form button[type="submit"], button[type="submit"], .btn.btn-primary[type="submit"]');
-        if (submitBtn) {
-            await Promise.all([
-                page.waitForNavigation({ waitUntil: "networkidle2" }),
-                submitBtn.click()
-            ]);
-        } else {
-            // Fallback: submit the first form on the page
-            await Promise.all([
-                page.waitForNavigation({ waitUntil: "networkidle2" }),
-                page.evaluate(() => {
-                    const form = document.querySelector("form") as HTMLFormElement | null;
-                    if (form) form.submit();
-                })
-            ]);
+        if (!loginUrl || !username || !password) {
+            return res
+                .status(400)
+                .json({ ok: false, message: "loginUrl, username, and password are required" });
         }
 
-        const currentUrl = page.url();
+        let browser: Browser | null = null;
 
-        // Decide success by URL pattern (their dashboard URL)
-        const ok = /\/home($|[\?#])/.test(currentUrl) || /dashboard/i.test(currentUrl);
+        try {
+            const launchOptions = await getLaunchOptions();
+            browser = await puppeteer.launch(launchOptions);
+            const page = await browser.newPage();
 
-        // Always include a screenshot for debugging
-        const png = await page.screenshot({ type: "png", fullPage: true });
-        const screenshot = `data:image/png;base64,${Buffer.from(png).toString("base64")}`;
+            // Explicit viewport (since chromium.defaultViewport removed)
+            await page.setViewport({ width: 1280, height: 800 });
 
-        if (!ok) {
+            page.setDefaultNavigationTimeout(90_000);
+            page.setDefaultTimeout(60_000);
+
+            // Go to login page
+            await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
+
+            // Input email
+            await page.waitForSelector('input[name="email"], #email', { visible: true });
+            await page.type('input[name="email"], #email', username, { delay: 20 });
+
+            // Input password
+            await page.waitForSelector('input[name="password"], #password', { visible: true });
+            await page.type('input[name="password"], #password', password, { delay: 20 });
+
+            // Click login button
+            const submitSel =
+                'button[type="submit"], .btn.btn-primary[type="submit"], .btn.btn-primary';
+            await page.click(submitSel);
+
+            // Wait for redirect after login
+            await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 90_000 });
+
+            const currentUrl = page.url();
+            const ok =
+                currentUrl.includes("/home") || !currentUrl.includes("/login");
+
+            const png = await page.screenshot({ type: "png" });
+            const screenshot = `data:image/png;base64,${Buffer.from(png).toString("base64")}`;
+
             return res.json({
-                ok: false,
-                message: "Login failed or unexpected destination.",
+                ok,
+                message: ok
+                    ? "Authenticated successfully."
+                    : "Login may have failed; check currentUrl.",
                 currentUrl,
-                screenshot
+                screenshot,
             });
-        }
-
-        // (Optional) place to scrape post-login data if you need it later
-        // const someText = await page.$eval(".some-selector", el => el.textContent?.trim());
-
-        return res.json({
-            ok: true,
-            message: "Authenticated successfully.",
-            currentUrl,
-            screenshot
-        });
-    } catch (err: any) {
-        return res.status(500).json({
-            ok: false,
-            message: err?.message || "Unhandled error",
-            currentUrl: null
-        });
-    } finally {
-        if (browser) {
-            try { await browser.close(); } catch { }
+        } catch (err: any) {
+            return res.status(500).json({
+                ok: false,
+                message: err?.message || "Unexpected error",
+                currentUrl: null,
+            });
+        } finally {
+            if (browser) {
+                try {
+                    await browser.close();
+                } catch {
+                    // ignore
+                }
+            }
         }
     }
-});
+);
 
 export default router;
